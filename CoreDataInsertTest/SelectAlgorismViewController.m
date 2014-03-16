@@ -42,6 +42,7 @@
             [self saveTo10000Insert],
             [self saveTo100thread],
             [self saveTo100threadAndSleep],
+            [self saveTo100anotherSavethreadAndSleep],
     ][indexPath.row];
 }
 
@@ -126,6 +127,40 @@
         [queue waitUntilAllOperationsAreFinished];
         for (NSManagedObjectContext *c in array) {
             [c MR_saveToPersistentStoreAndWait];
+        }
+    };
+}
+
+- (id)saveTo100anotherSavethreadAndSleep {
+    return ^{
+        NSMutableArray *contexts = [NSMutableArray array];
+        NSMutableArray *queues = [NSMutableArray array];
+        NSLock *lock = [[NSLock alloc] init];
+        for (int i = 0; i < 100; i++) {
+            [queues addObject:({
+                NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+                [queue addOperationWithBlock:^{
+                    NSManagedObjectContext *context = [NSManagedObjectContext MR_context];
+                    for (int j = 0; j < 100; j++) {
+                        TestTable *t = [TestTable MR_createInContext:context];
+                        t.text = @"hoge";
+                        t.date = [NSDate date];
+                        [NSThread sleepForTimeInterval:0.01];
+                    }
+                    [lock lock];
+                    [contexts addObject:context];
+                    [lock unlock];
+                }];
+                queue;
+            })];
+        }
+        NSManagedObjectContext *context;
+        for (int i = 0; i < 100; i++) {
+            [queues[i] waitUntilAllOperationsAreFinished];
+            [lock lock];
+            context = contexts[i];
+            [lock unlock];
+            [context MR_saveToPersistentStoreAndWait];
         }
     };
 }
